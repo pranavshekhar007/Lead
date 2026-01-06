@@ -54,6 +54,7 @@ const profitController = require("./controller/profitController");
 const combinedController = require("./controller/combinedFinanceController");
 const leadStatusController = require("./controller/leadStatusController");
 const leadController = require("./controller/leadController");
+const leadSourceController = require("./controller/leadSourceController");
 
 const router = express.Router();
 
@@ -111,6 +112,7 @@ router.use("/profit", profitController);
 router.use("/reserve-fund", reserveFundController);
 router.use("/finance", combinedController);
 router.use("/lead-status", leadStatusController);
+router.use("/lead-source", leadSourceController);
 router.use("/lead", leadController);
 
 

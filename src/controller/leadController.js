@@ -7,18 +7,27 @@ require("dotenv").config();
 const leadController = express.Router();
 
 /* CREATE LEAD */
+/* CREATE LEAD */
 leadController.post("/create", async (req, res) => {
   try {
-    const defaultStatus = await LeadStatus.findOne({ code: "NEW" });
-    if (!defaultStatus) {
-      return sendResponse(res, 400, "Failed", {
-        message: "Default status NEW not found",
-      });
+    let leadStatusId = req.body.leadStatus;
+
+    // If frontend did NOT send leadStatus → fallback to default
+    if (!leadStatusId) {
+      const defaultStatus = await LeadStatus.findOne({ code: "NEW" });
+
+      if (!defaultStatus) {
+        return sendResponse(res, 400, "Failed", {
+          message: "Default lead status not found",
+        });
+      }
+
+      leadStatusId = defaultStatus._id;
     }
 
     const lead = await Lead.create({
       ...req.body,
-      status: defaultStatus._id,
+      leadStatus: leadStatusId,
     });
 
     sendResponse(res, 200, "Success", {
@@ -33,28 +42,26 @@ leadController.post("/create", async (req, res) => {
 /* LIST LEADS */
 leadController.post("/list", async (req, res) => {
   try {
-    const {
-      status,
-      searchKey = "",
-      pageNo = 1,
-      pageCount = 10,
-    } = req.body;
+    const { searchKey = "", status, pageNo = 1, pageCount = 10 } = req.body;
 
     const query = {};
 
     if (status) query.status = status;
     if (searchKey) {
       query.$or = [
-        { name: { $regex: searchKey, $options: "i" } },
-        { phoneNumber: { $regex: searchKey, $options: "i" } },
+        { leadName: { $regex: searchKey, $options: "i" } },
+        { phone: { $regex: searchKey, $options: "i" } },
+        { email: { $regex: searchKey, $options: "i" } },
+        { company: { $regex: searchKey, $options: "i" } },
       ];
     }
 
     const leads = await Lead.find(query)
-      .populate("status", "name code")
+      .populate("leadStatus", "name")
+      .populate("leadSource", "sourceName")
       .sort({ createdAt: -1 })
-      .limit(pageCount)
-      .skip((pageNo - 1) * pageCount);
+      .limit(parseInt(pageCount))
+      .skip((pageNo - 1) * parseInt(pageCount));
 
     const total = await Lead.countDocuments(query);
 
@@ -67,64 +74,70 @@ leadController.post("/list", async (req, res) => {
   }
 });
 
-/* UPDATE LEAD DETAILS */
+/* UPDATE LEAD */
 leadController.put("/update/:id", async (req, res) => {
-    try {
-      const leadId = req.params.id;
-  
-      const lead = await Lead.findById(leadId);
-      if (!lead) {
-        return sendResponse(res, 404, "Failed", {
-          message: "Lead not found",
-        });
-      }
-  
-      const updatedLead = await Lead.findByIdAndUpdate(
-        leadId,
-        {
-          name: req.body.name,
-          phoneNumber: req.body.phoneNumber,
-          email: req.body.email,
-          address: req.body.address,
-          city: req.body.city,
-          state: req.body.state,
-          country: req.body.country,
-          notes: req.body.notes,
-        },
-        { new: true }
-      ).populate("status", "name code");
-  
-      sendResponse(res, 200, "Success", {
-        message: "Lead updated successfully",
-        data: updatedLead,
-      });
-    } catch (error) {
-      sendResponse(res, 500, "Failed", {
-        message: error.message || "Internal server error",
+  try {
+    const lead = await Lead.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    )
+      .populate("leadStatus", "name")
+      .populate("leadSource", "sourceName");
+
+    if (!lead) {
+      return sendResponse(res, 404, "Failed", {
+        message: "Lead not found",
       });
     }
-  });
-  
+
+    sendResponse(res, 200, "Success", {
+      message: "Lead updated successfully",
+      data: lead,
+    });
+  } catch (error) {
+    sendResponse(res, 500, "Failed", { message: error.message });
+  }
+});
 
 /* UPDATE LEAD STATUS */
 leadController.put("/update-status/:id", async (req, res) => {
   try {
-    const { statusId, nextFollowUpAt, notes } = req.body;
+    const { leadStatus } = req.body;
 
     const lead = await Lead.findById(req.params.id);
     if (!lead) {
       return sendResponse(res, 404, "Failed", { message: "Lead not found" });
     }
 
-    lead.status = statusId;
-    if (nextFollowUpAt) lead.nextFollowUpAt = nextFollowUpAt;
-    if (notes) lead.notes = notes;
-
+    lead.leadStatus = leadStatus;
     await lead.save();
 
     sendResponse(res, 200, "Success", {
       message: "Lead status updated successfully",
-      data: lead,
+    });
+  } catch (error) {
+    sendResponse(res, 500, "Failed", { message: error.message });
+  }
+});
+
+/* TOGGLE LEAD STATUS (ACTIVE / INACTIVE) */
+leadController.patch("/toggle/:id", async (req, res) => {
+  try {
+    const lead = await Lead.findById(req.params.id);
+
+    if (!lead) {
+      return sendResponse(res, 404, "Failed", {
+        message: "Lead not found",
+      });
+    }
+
+    lead.status = !lead.status;
+    await lead.save();
+
+    sendResponse(res, 200, "Success", {
+      message: "Lead status updated",
+      status: lead.status,
     });
   } catch (error) {
     sendResponse(res, 500, "Failed", { message: error.message });
@@ -133,35 +146,31 @@ leadController.put("/update-status/:id", async (req, res) => {
 
 /* DELETE LEAD */
 leadController.delete("/delete/:id", async (req, res) => {
-    try {
-      const leadId = req.params.id;
-  
-      const lead = await Lead.findById(leadId);
-      if (!lead) {
-        return sendResponse(res, 404, "Failed", {
-          message: "Lead not found",
-        });
-      }
-  
-      await Lead.findByIdAndDelete(leadId);
-  
-      sendResponse(res, 200, "Success", {
-        message: "Lead deleted successfully",
-      });
-    } catch (error) {
-      sendResponse(res, 500, "Failed", {
-        message: error.message || "Internal server error",
+  try {
+    const lead = await Lead.findById(req.params.id);
+
+    if (!lead) {
+      return sendResponse(res, 404, "Failed", {
+        message: "Lead not found",
       });
     }
-  });
 
-  /* GET LEAD DETAILS */
+    await Lead.findByIdAndDelete(req.params.id);
+
+    sendResponse(res, 200, "Success", {
+      message: "Lead deleted successfully",
+    });
+  } catch (error) {
+    sendResponse(res, 500, "Failed", { message: error.message });
+  }
+});
+
+/* LEAD DETAILS */
 leadController.get("/details/:id", async (req, res) => {
   try {
-    const leadId = req.params.id;
-
-    const lead = await Lead.findById(leadId)
-      .populate("status", "name code isFinal")
+    const lead = await Lead.findById(req.params.id)
+      .populate("leadStatus", "name")
+      .populate("leadSource", "sourceName")
       .lean();
 
     if (!lead) {
@@ -171,20 +180,17 @@ leadController.get("/details/:id", async (req, res) => {
     }
 
     sendResponse(res, 200, "Success", {
-      message: "Lead details fetched successfully",
       data: lead,
     });
   } catch (error) {
-    sendResponse(res, 500, "Failed", {
-      message: error.message || "Internal server error",
-    });
+    sendResponse(res, 500, "Failed", { message: error.message });
   }
 });
 
 leadController.get("/dashboard-details", async (req, res) => {
   try {
     const [leads, statuses] = await Promise.all([
-      Lead.find().populate("status", "name code").lean(),
+      Lead.find().populate("status", "name").lean(),
       LeadStatus.find({ isActive: true }).lean(),
     ]);
 
@@ -253,6 +259,5 @@ leadController.get("/dashboard-details", async (req, res) => {
     sendResponse(res, 500, "Failed", { message: error.message });
   }
 });
-  
 
 module.exports = leadController;
