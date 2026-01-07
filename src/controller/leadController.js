@@ -40,11 +40,29 @@ leadController.post("/create", async (req, res) => {
 /* LIST LEADS */
 leadController.post("/list", async (req, res) => {
   try {
-    const { searchKey = "", status, pageNo = 1, pageCount = 10 } = req.body;
+    const {
+      searchKey = "",
+      status,
+      leadStatus,
+      leadSource,
+      pageNo = 1,
+      pageCount = 10,
+    } = req.body;
 
     const query = {};
 
-    if (status) query.status = status;
+    if (status !== undefined) {
+      query.status = status;
+    }
+
+    if (leadStatus) {
+      query.leadStatus = leadStatus;
+    }
+
+    if (leadSource) {
+      query.leadSource = leadSource;
+    }
+    
     if (searchKey) {
       query.$or = [
         { leadName: { $regex: searchKey, $options: "i" } },
@@ -55,11 +73,11 @@ leadController.post("/list", async (req, res) => {
     }
 
     const leads = await Lead.find(query)
-      .populate("leadStatus", "name")
+      .populate("leadStatus", "name code")
       .populate("leadSource", "sourceName")
       .sort({ createdAt: -1 })
-      .limit(parseInt(pageCount))
-      .skip((pageNo - 1) * parseInt(pageCount));
+      .limit(Number(pageCount))
+      .skip((pageNo - 1) * Number(pageCount));
 
     const total = await Lead.countDocuments(query);
 
@@ -71,6 +89,8 @@ leadController.post("/list", async (req, res) => {
     sendResponse(res, 500, "Failed", { message: error.message });
   }
 });
+
+
 
 /* UPDATE LEAD */
 leadController.put("/update/:id", async (req, res) => {
