@@ -6,19 +6,16 @@ require("dotenv").config();
 
 const leadController = express.Router();
 
-/* CREATE LEAD */
-/* CREATE LEAD */
 leadController.post("/create", async (req, res) => {
   try {
     let leadStatusId = req.body.leadStatus;
 
-    // If frontend did NOT send leadStatus → fallback to default
     if (!leadStatusId) {
-      const defaultStatus = await LeadStatus.findOne({ code: "NEW" });
+      const defaultStatus = await LeadStatus.findOne({ status: true }).sort({ createdAt: 1 });
 
       if (!defaultStatus) {
         return sendResponse(res, 400, "Failed", {
-          message: "Default lead status not found",
+          message: "No active lead status found",
         });
       }
 
@@ -38,6 +35,7 @@ leadController.post("/create", async (req, res) => {
     sendResponse(res, 500, "Failed", { message: error.message });
   }
 });
+
 
 /* LIST LEADS */
 leadController.post("/list", async (req, res) => {
@@ -190,7 +188,7 @@ leadController.get("/details/:id", async (req, res) => {
 leadController.get("/dashboard-details", async (req, res) => {
   try {
     const [leads, statuses] = await Promise.all([
-      Lead.find().populate("status", "name").lean(),
+      Lead.find().populate("leadStatus", "name").lean(),
       LeadStatus.find({ isActive: true }).lean(),
     ]);
 
@@ -229,9 +227,9 @@ leadController.get("/dashboard-details", async (req, res) => {
       if (createdDate >= todayDate) todayLeads++;
       if (createdDate >= weekStart) thisWeekLeads++;
 
-      if (lead.status && statusCountMap[lead.status._id.toString()]) {
-        statusCountMap[lead.status._id.toString()].count += 1;
-      }
+      if (lead.leadStatus && statusCountMap[lead.leadStatus._id.toString()]) {
+        statusCountMap[lead.leadStatus._id.toString()].count += 1;
+      }      
     });
 
     const dailyLeads = Object.values(dailyLeadsMap).sort(
