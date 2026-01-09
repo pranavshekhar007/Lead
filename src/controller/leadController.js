@@ -62,7 +62,6 @@ leadController.post("/list", async (req, res) => {
     if (leadSource) {
       query.leadSource = leadSource;
     }
-    
     if (searchKey) {
       query.$or = [
         { leadName: { $regex: searchKey, $options: "i" } },

@@ -19,6 +19,16 @@ const leadStatusSchema = mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  
+  color: {
+    type: String,
+    default: "#3B82F6",
+  },
+
+  order: {
+    type: Number,
+    default: 0,
+  },
 });
 
 leadStatusSchema.plugin(timestamps);

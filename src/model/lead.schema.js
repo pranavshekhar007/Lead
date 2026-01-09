@@ -74,6 +74,7 @@ const leadSchema = mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  
 });
 
 leadSchema.plugin(timestamps);

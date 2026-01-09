@@ -5,10 +5,15 @@ require("dotenv").config();
 
 const leadStatusController = express.Router();
 
-/* CREATE STATUS */
 leadStatusController.post("/create", async (req, res) => {
   try {
-    const status = await LeadStatus.create(req.body);
+    const status = await LeadStatus.create({
+      name: req.body.name,
+      description: req.body.description,
+      status: req.body.status,
+      color: req.body.color,
+    });
+
     sendResponse(res, 200, "Success", {
       message: "Lead status created",
       data: status,
@@ -18,12 +23,13 @@ leadStatusController.post("/create", async (req, res) => {
   }
 });
 
-/* LIST STATUS (SEARCH + PAGINATION) */
 leadStatusController.post("/list", async (req, res) => {
   try {
     const {
       searchKey = "",
       pageNo = 1,
+      sortByField,
+      sortByOrder,
       pageCount = 10,
     } = req.body;
 
@@ -36,10 +42,13 @@ leadStatusController.post("/list", async (req, res) => {
       ];
     }
 
+    const sortField = sortByField || "createdAt";
+    const sortOrder = sortByOrder === "desc" ? -1 : 1;
+
     const list = await LeadStatus.find(query)
-      .sort({ createdAt: -1 })
-      .limit(Number(pageCount))
-      .skip((pageNo - 1) * pageCount);
+      .sort({ [sortField]: sortOrder })
+      .skip((pageNo - 1) * parseInt(pageCount))
+      .limit(parseInt(pageCount));
 
     const total = await LeadStatus.countDocuments(query);
 
@@ -52,7 +61,6 @@ leadStatusController.post("/list", async (req, res) => {
   }
 });
 
-/* UPDATE STATUS */
 leadStatusController.put("/update/:id", async (req, res) => {
   try {
     const updated = await LeadStatus.findByIdAndUpdate(
@@ -61,6 +69,7 @@ leadStatusController.put("/update/:id", async (req, res) => {
         name: req.body.name,
         description: req.body.description,
         status: req.body.status,
+        color: req.body.color,
       },
       { new: true }
     );
@@ -112,6 +121,5 @@ leadStatusController.delete("/delete/:id", async (req, res) => {
     sendResponse(res, 500, "Failed", { message: error.message });
   }
 });
-
 
 module.exports = leadStatusController;
