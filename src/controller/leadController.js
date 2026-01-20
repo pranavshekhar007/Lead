@@ -1,8 +1,12 @@
 const express = require("express");
+const multer = require("multer");
 const Lead = require("../model/lead.schema");
 const LeadStatus = require("../model/leadStatus.schema");
 const { sendResponse } = require("../utils/common");
+const ExcelService = require("../utils/ExcelService");
 require("dotenv").config();
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 const leadController = express.Router();
 
@@ -301,6 +305,194 @@ leadController.put("/reorder", async (req, res) => {
     });
   } catch (error) {
     console.error("Reorder error:", error);
+    sendResponse(res, 500, "Failed", { message: error.message });
+  }
+});
+
+leadController.get("/export", async (req, res) => {
+  try {
+    const leads = await Lead.find()
+      .populate("leadStatus", "name")
+      .populate("leadSource", "sourceName")
+      .lean();
+
+    const leadColumnMapping = [
+      { header: 'Lead Name', key: 'leadName', width: 25 },
+      { header: 'Email', key: 'email', width: 30 },
+      { header: 'Phone', key: 'phone', width: 20 },
+      { header: 'Company', key: 'company', width: 25 },
+      { header: 'Account Name', key: 'accountName', width: 25 },
+      { header: 'Account Industry', key: 'accountIndustry', width: 25 },
+      { header: 'Website', key: 'website', width: 30 },
+      { header: 'Position', key: 'position', width: 20 },
+      { header: 'Lead Value', key: 'leadValue', width: 15 },
+      {
+        header: 'Lead Status',
+        key: 'leadStatusName',
+        width: 20,
+        transform: (val, item) => item.leadStatus?.name || ''
+      },
+      {
+        header: 'Lead Source',
+        key: 'leadSourceName',
+        width: 20,
+        transform: (val, item) => item.leadSource?.sourceName || ''
+      },
+      { header: 'Address', key: 'address', width: 35 },
+      { header: 'Notes', key: 'notes', width: 40 },
+    ];
+
+    const buffer = await ExcelService.exportToExcel(
+      leads,
+      leadColumnMapping,
+      'Leads'
+    );
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=leads-${Date.now()}.xlsx`
+    );
+    res.send(buffer);
+  } catch (error) {
+    sendResponse(res, 500, "Failed", { message: error.message });
+  }
+});
+
+// leadController.post("/import", upload.single('file'), async (req, res) => {
+//   try {
+//     if (!req.file) {
+//       return sendResponse(res, 400, "Failed", {
+//         message: "No file uploaded"
+//       });
+//     }
+
+//     const defaultStatus = await LeadStatus.findOne({ status: true }).sort({ createdAt: 1 });
+
+//     if (!defaultStatus) {
+//       return sendResponse(res, 400, "Failed", {
+//         message: "No active lead status found"
+//       });
+//     }
+
+//     const leadColumnMapping = [
+//       { header: 'Lead Name', key: 'leadName' },
+//       { header: 'Email', key: 'email' },
+//       { header: 'Phone', key: 'phone' },
+//       { header: 'Company', key: 'company' },
+//       { header: 'Account Name', key: 'accountName' },
+//       { header: 'Account Industry', key: 'accountIndustry' },
+//       { header: 'Website', key: 'website' },
+//       { header: 'Position', key: 'position' },
+//       {
+//         header: 'Lead Value',
+//         key: 'leadValue',
+//         parse: (val) => Number(val) || 0
+//       },
+//       { header: 'Address', key: 'address' },
+//       { header: 'Notes', key: 'notes' },
+//     ];
+
+//     const data = await ExcelService.importFromExcel(
+//       req.file.buffer,
+//       leadColumnMapping
+//     );
+
+//     const leadsToInsert = data.map(item => ({
+//       ...item,
+//       leadStatus: defaultStatus._id,
+//       status: true,
+//       order: 0
+//     }));
+
+//     const insertedLeads = await Lead.insertMany(leadsToInsert);
+
+//     sendResponse(res, 200, "Success", {
+//       message: `Successfully imported ${insertedLeads.length} leads`,
+//       count: insertedLeads.length
+//     });
+//   } catch (error) {
+//     sendResponse(res, 500, "Failed", { message: error.message });
+//   }
+// });
+
+leadController.post("/import", upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return sendResponse(res, 400, "Failed", {
+        message: "No file uploaded"
+      });
+    }
+
+    const defaultStatus = await LeadStatus.findOne({ status: true }).sort({ createdAt: 1 });
+    if (!defaultStatus) {
+      return sendResponse(res, 400, "Failed", {
+        message: "No active lead status found"
+      });
+    }
+
+    const allStatuses = await LeadStatus.find({ status: true });
+
+    const statusMap = {};
+    allStatuses.forEach(s => {
+      if (s.name) {
+        statusMap[s.name.trim().toLowerCase()] = s._id;
+      }
+    });
+
+    const leadColumnMapping = [
+      { header: 'Lead Name', key: 'leadName' },
+      { header: 'Email', key: 'email' },
+      { header: 'Phone', key: 'phone' },
+      { header: 'Company', key: 'company' },
+      { header: 'Account Name', key: 'accountName' },
+      { header: 'Account Industry', key: 'accountIndustry' },
+      { header: 'Website', key: 'website' },
+      { header: 'Position', key: 'position' },
+      {
+        header: 'Lead Value',
+        key: 'leadValue',
+        parse: (val) => Number(val) || 0
+      },
+      { header: 'Lead Status', key: 'excelStatusName' },
+      { header: 'Address', key: 'address' },
+      { header: 'Notes', key: 'notes' },
+    ];
+
+    const data = await ExcelService.importFromExcel(
+      req.file.buffer,
+      leadColumnMapping
+    );
+
+    const leadsToInsert = data.map(item => {
+      let statusId = defaultStatus._id;
+
+      if (item.excelStatusName) {
+        const normalizedKey = item.excelStatusName.toString().trim().toLowerCase();
+        if (statusMap[normalizedKey]) {
+          statusId = statusMap[normalizedKey];
+        }
+      }
+
+      return {
+        ...item,
+        leadStatus: statusId,
+        status: true,
+        order: 0
+      };
+    });
+
+    const insertedLeads = await Lead.insertMany(leadsToInsert);
+
+    sendResponse(res, 200, "Success", {
+      message: `Successfully imported ${insertedLeads.length} leads`,
+      count: insertedLeads.length
+    });
+  } catch (error) {
+    console.error("Import Error:", error);
     sendResponse(res, 500, "Failed", { message: error.message });
   }
 });
