@@ -2,7 +2,7 @@ const express = require("express");
 const Lead = require("../model/lead.schema");
 const LeadStatus = require("../model/leadStatus.schema");
 const { sendResponse } = require("../utils/common");
-require("dotenv").config(); 
+require("dotenv").config();
 
 const leadController = express.Router();
 
@@ -74,7 +74,7 @@ leadController.post("/list", async (req, res) => {
     const leads = await Lead.find(query)
       .populate("leadStatus", "name code")
       .populate("leadSource", "sourceName")
-      .sort({ createdAt: -1 })
+      .sort({ order: 1, createdAt: -1 })
       .limit(Number(pageCount))
       .skip((pageNo - 1) * Number(pageCount));
 
@@ -248,7 +248,7 @@ leadController.get("/dashboard-details", async (req, res) => {
 
       if (lead.leadStatus && statusCountMap[lead.leadStatus._id.toString()]) {
         statusCountMap[lead.leadStatus._id.toString()].count += 1;
-      }      
+      }
     });
 
     const dailyLeads = Object.values(dailyLeadsMap).sort(
@@ -273,6 +273,34 @@ leadController.get("/dashboard-details", async (req, res) => {
     });
   } catch (error) {
     console.error("Lead dashboard error:", error);
+    sendResponse(res, 500, "Failed", { message: error.message });
+  }
+});
+
+leadController.put("/reorder", async (req, res) => {
+  try {
+    const { updates } = req.body;
+
+    if (!updates || !Array.isArray(updates)) {
+      return sendResponse(res, 400, "Failed", {
+        message: "Invalid updates array",
+      });
+    }
+
+    const bulkOps = updates.map((update) => ({
+      updateOne: {
+        filter: { _id: update.id },
+        update: { $set: { order: update.order } },
+      },
+    }));
+
+    await Lead.bulkWrite(bulkOps);
+
+    sendResponse(res, 200, "Success", {
+      message: "Leads reordered successfully",
+    });
+  } catch (error) {
+    console.error("Reorder error:", error);
     sendResponse(res, 500, "Failed", { message: error.message });
   }
 });

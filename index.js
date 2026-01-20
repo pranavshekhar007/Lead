@@ -100,8 +100,8 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const routes = require("./src/route");
-const {createServer} = require('http');
-const {Server} = require("socket.io")
+const { createServer } = require('http');
+const { Server } = require("socket.io")
 
 const app = express();
 const server = createServer(app);
@@ -110,7 +110,7 @@ require("dotenv").config();
 const io = new Server(server, {
   cors: {
     origin: "http://localhost:7007/api/",
-    methods: ["GET", "POST"],
+    methods: ['GET,HEAD,PUT,PATCH,POST,DELETE'],
     credentials: true,
   },
   transports: ['websocket'],
@@ -125,7 +125,7 @@ io.on("connection", (socket) => {
   // Example: listening to an event from client
   socket.on("sendMessage", (data) => {
     console.log("Message from client:", data);
-    
+
     // Broadcasting to all clients
     io.emit("receiveMessage", data);
   });
@@ -165,7 +165,7 @@ mongoose
 
 app.get("/", (req, res) => res.send(`Server listing on port ${PORT}`));
 app.use("/api", routes);
-app.all("*", (req, res) => res.status(404).json({ error: "404 Not Found" })); 
+app.all("*", (req, res) => res.status(404).json({ error: "404 Not Found" }));
 
 
 
