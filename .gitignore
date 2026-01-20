@@ -1,4 +1,5 @@
 /node_modules
 .env.dev
+.env.backup_parity_test
 .env
 src/utils/serviceAccountKey.json
