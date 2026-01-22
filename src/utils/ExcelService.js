@@ -12,11 +12,6 @@ class ExcelService {
         }));
 
         worksheet.getRow(1).font = { bold: true };
-        worksheet.getRow(1).fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFE0E0E0' }
-        };
 
         data.forEach(item => {
             const row = {};
@@ -24,53 +19,56 @@ class ExcelService {
                 if (col.transform) {
                     row[col.key] = col.transform(item[col.key], item);
                 } else {
-                    row[col.key] = item[col.key] || '';
+                    row[col.key] = item[col.key];
                 }
             });
             worksheet.addRow(row);
         });
 
-        const buffer = await workbook.xlsx.writeBuffer();
-        return buffer;
+        return await workbook.xlsx.writeBuffer();
     }
 
     static async importFromExcel(fileBuffer, columnMapping) {
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.load(fileBuffer);
-
         const worksheet = workbook.worksheets[0];
         const data = [];
 
         const headerRow = worksheet.getRow(1);
         const headerMap = {};
 
+        // Map Excel headers to config keys
         headerRow.eachCell((cell, colNumber) => {
             const header = cell.value;
             const mapping = columnMapping.find(col => col.header === header);
             if (mapping) {
-                headerMap[colNumber] = mapping.key;
+                headerMap[colNumber] = mapping;
             }
         });
 
         worksheet.eachRow((row, rowNumber) => {
-            if (rowNumber === 1) return;
+            if (rowNumber === 1) return; // Skip header
 
             const rowData = {};
             let hasData = false;
 
             row.eachCell((cell, colNumber) => {
-                const key = headerMap[colNumber];
-                if (key) {
-                    const value = cell.value;
-                    const mapping = columnMapping.find(col => col.key === key);
+                const mapping = headerMap[colNumber];
+                if (mapping) {
+                    let value = cell.value;
 
-                    if (mapping && mapping.parse) {
-                        rowData[key] = mapping.parse(value);
-                    } else {
-                        rowData[key] = value;
-                    }
-
+                    // Handle rich text or formulas
                     if (value !== null && value !== undefined && value !== '') {
+                        if (typeof value === 'object') {
+                            if (value.text) value = value.text;
+                            else if (value.result) value = value.result;
+                        }
+
+                        if (mapping.parse) {
+                            value = mapping.parse(value);
+                        }
+
+                        rowData[mapping.key] = value;
                         hasData = true;
                     }
                 }

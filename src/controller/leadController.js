@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const Lead = require("../model/lead.schema");
 const LeadStatus = require("../model/leadStatus.schema");
+const LeadSource = require("../model/leadSource.schema");
 const { sendResponse } = require("../utils/common");
 const ExcelService = require("../utils/ExcelService");
 require("dotenv").config();
@@ -240,6 +241,10 @@ leadController.get("/dashboard-details", async (req, res) => {
 
     leads.forEach((lead) => {
       const createdDate = new Date(lead.createdAt);
+      if (isNaN(createdDate.getTime())) {
+        console.warn(`Skipping lead with invalid date. ID: ${lead._id}`);
+        return;
+      }
       const dateKey = createdDate.toISOString().split("T")[0];
 
       if (!dailyLeadsMap[dateKey]) {
@@ -317,6 +322,7 @@ leadController.get("/export", async (req, res) => {
       .lean();
 
     const leadColumnMapping = [
+      { header: 'ID', key: '_id', width: 25 },
       { header: 'Lead Name', key: 'leadName', width: 25 },
       { header: 'Email', key: 'email', width: 30 },
       { header: 'Phone', key: 'phone', width: 20 },
@@ -362,88 +368,31 @@ leadController.get("/export", async (req, res) => {
   }
 });
 
-// leadController.post("/import", upload.single('file'), async (req, res) => {
-//   try {
-//     if (!req.file) {
-//       return sendResponse(res, 400, "Failed", {
-//         message: "No file uploaded"
-//       });
-//     }
-
-//     const defaultStatus = await LeadStatus.findOne({ status: true }).sort({ createdAt: 1 });
-
-//     if (!defaultStatus) {
-//       return sendResponse(res, 400, "Failed", {
-//         message: "No active lead status found"
-//       });
-//     }
-
-//     const leadColumnMapping = [
-//       { header: 'Lead Name', key: 'leadName' },
-//       { header: 'Email', key: 'email' },
-//       { header: 'Phone', key: 'phone' },
-//       { header: 'Company', key: 'company' },
-//       { header: 'Account Name', key: 'accountName' },
-//       { header: 'Account Industry', key: 'accountIndustry' },
-//       { header: 'Website', key: 'website' },
-//       { header: 'Position', key: 'position' },
-//       {
-//         header: 'Lead Value',
-//         key: 'leadValue',
-//         parse: (val) => Number(val) || 0
-//       },
-//       { header: 'Address', key: 'address' },
-//       { header: 'Notes', key: 'notes' },
-//     ];
-
-//     const data = await ExcelService.importFromExcel(
-//       req.file.buffer,
-//       leadColumnMapping
-//     );
-
-//     const leadsToInsert = data.map(item => ({
-//       ...item,
-//       leadStatus: defaultStatus._id,
-//       status: true,
-//       order: 0
-//     }));
-
-//     const insertedLeads = await Lead.insertMany(leadsToInsert);
-
-//     sendResponse(res, 200, "Success", {
-//       message: `Successfully imported ${insertedLeads.length} leads`,
-//       count: insertedLeads.length
-//     });
-//   } catch (error) {
-//     sendResponse(res, 500, "Failed", { message: error.message });
-//   }
-// });
-
 leadController.post("/import", upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
-      return sendResponse(res, 400, "Failed", {
-        message: "No file uploaded"
-      });
+      return sendResponse(res, 400, "Failed", { message: "No file uploaded" });
     }
 
     const defaultStatus = await LeadStatus.findOne({ status: true }).sort({ createdAt: 1 });
     if (!defaultStatus) {
-      return sendResponse(res, 400, "Failed", {
-        message: "No active lead status found"
-      });
+      return sendResponse(res, 400, "Failed", { message: "No active lead status found" });
     }
 
     const allStatuses = await LeadStatus.find({ status: true });
-
     const statusMap = {};
     allStatuses.forEach(s => {
-      if (s.name) {
-        statusMap[s.name.trim().toLowerCase()] = s._id;
-      }
+      if (s.name) statusMap[s.name.trim().toLowerCase()] = s._id;
+    });
+
+    const allSources = await LeadSource.find({});
+    const sourceMap = {};
+    allSources.forEach(s => {
+      if (s.sourceName) sourceMap[s.sourceName.trim().toLowerCase()] = s._id;
     });
 
     const leadColumnMapping = [
+      { header: 'ID', key: '_id' },
       { header: 'Lead Name', key: 'leadName' },
       { header: 'Email', key: 'email' },
       { header: 'Phone', key: 'phone' },
@@ -452,45 +401,78 @@ leadController.post("/import", upload.single('file'), async (req, res) => {
       { header: 'Account Industry', key: 'accountIndustry' },
       { header: 'Website', key: 'website' },
       { header: 'Position', key: 'position' },
-      {
-        header: 'Lead Value',
-        key: 'leadValue',
-        parse: (val) => Number(val) || 0
-      },
+      { header: 'Lead Value', key: 'leadValue', parse: (val) => Number(val) || 0 },
       { header: 'Lead Status', key: 'excelStatusName' },
+      { header: 'Lead Source', key: 'excelSourceName' },
       { header: 'Address', key: 'address' },
       { header: 'Notes', key: 'notes' },
     ];
 
-    const data = await ExcelService.importFromExcel(
-      req.file.buffer,
-      leadColumnMapping
-    );
+    const data = await ExcelService.importFromExcel(req.file.buffer, leadColumnMapping);
 
-    const leadsToInsert = data.map(item => {
-      let statusId = defaultStatus._id;
+    const bulkOps = data.map(item => {
+      const updateData = { ...item };
 
       if (item.excelStatusName) {
         const normalizedKey = item.excelStatusName.toString().trim().toLowerCase();
         if (statusMap[normalizedKey]) {
-          statusId = statusMap[normalizedKey];
+          updateData.leadStatus = statusMap[normalizedKey];
+        } else {
+          updateData.leadStatus = defaultStatus._id;
         }
+        delete updateData.excelStatusName;
+      } else {
+        if (!item._id) updateData.leadStatus = defaultStatus._id;
       }
 
-      return {
-        ...item,
-        leadStatus: statusId,
-        status: true,
-        order: 0
-      };
+      if (item.excelSourceName) {
+        const normalizedSourceKey = item.excelSourceName.toString().trim().toLowerCase();
+        if (sourceMap[normalizedSourceKey]) {
+          updateData.leadSource = sourceMap[normalizedSourceKey];
+        }
+        delete updateData.excelSourceName;
+      }
+
+      let rawId = item._id;
+      if (rawId && typeof rawId === 'string') {
+        rawId = rawId.replace(/['"]+/g, '').trim();
+      }
+
+      if (rawId && rawId.length === 24) {
+        delete updateData._id;
+
+        return {
+          updateOne: {
+            filter: { _id: rawId },
+            update: { $set: updateData }
+          }
+        };
+      }
+      else {
+        delete updateData._id;
+
+        return {
+          insertOne: {
+            document: {
+              ...updateData,
+              status: true,
+              order: 0
+            }
+          }
+        };
+      }
     });
 
-    const insertedLeads = await Lead.insertMany(leadsToInsert);
+    if (bulkOps.length > 0) {
+      const result = await Lead.bulkWrite(bulkOps);
+      sendResponse(res, 200, "Success", {
+        message: `Processed ${bulkOps.length} rows. Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}, Inserted: ${result.insertedCount}`,
+        result
+      });
+    } else {
+      sendResponse(res, 200, "Success", { message: "No valid data found to import" });
+    }
 
-    sendResponse(res, 200, "Success", {
-      message: `Successfully imported ${insertedLeads.length} leads`,
-      count: insertedLeads.length
-    });
   } catch (error) {
     console.error("Import Error:", error);
     sendResponse(res, 500, "Failed", { message: error.message });
