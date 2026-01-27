@@ -10,6 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@mendable/firecrawl-js": "^4.11.4",
     "admin": "^1.4.1",
     "axios": "^1.7.7",
     "bcrypt": "^6.0.0",
@@ -27,6 +28,7 @@
     "googleapis": "^144.0.0",
     "http": "^0.0.1-security",
     "imap": "^0.8.19",
+    "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.2",
     "mailparser": "^3.7.2",
     "module": "^1.2.5",
@@ -42,6 +44,7 @@
     "node-fetch": "^3.3.2",
     "nodemailer": "^6.10.1",
     "nodemon": "^3.1.4",
+    "ollama": "^0.6.3",
     "onesignal-node": "^3.4.0",
     "pdfkit": "^0.17.2",
     "pm2": "^5.4.2",

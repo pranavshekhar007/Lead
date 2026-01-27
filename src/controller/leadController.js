@@ -1,12 +1,16 @@
 const express = require("express");
-const multer = require("multer");
 const Lead = require("../model/lead.schema");
+
+const { scrapeUrl } = require("../utils/firecrawl");
+const { getExtractedData } = require("../utils/ai");
+const { convertToCsv, convertToJson } = require("../utils/dataOperation");
 const LeadStatus = require("../model/leadStatus.schema");
 const LeadSource = require("../model/leadSource.schema");
 const { sendResponse } = require("../utils/common");
 const ExcelService = require("../utils/ExcelService");
 require("dotenv").config();
 
+const multer = require("multer"); // Keep multer if it's used later, but the instruction removed it from the top block. Re-adding it here to maintain functionality if it's used by `upload`.
 const upload = multer({ storage: multer.memoryStorage() });
 
 const leadController = express.Router();
@@ -476,6 +480,59 @@ leadController.post("/import", upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error("Import Error:", error);
     sendResponse(res, 500, "Failed", { message: error.message });
+  }
+});
+
+leadController.post("/scrape", async (req, res) => {
+  try {
+    const { url, fields, format = "json" } = req.body;
+
+    if (!url) {
+      return res.status(400).json({ error: "URL is required" });
+    }
+
+    const targetFields = fields && Array.isArray(fields) && fields.length > 0
+      ? fields
+      : ["name", "description", "contact_info"];
+
+    console.log(`Scraping URL: ${url}`);
+    const markdown = await scrapeUrl(url);
+
+    console.log("Sending to LLM for extraction...");
+    let extractedData = await getExtractedData(markdown, targetFields);
+
+    if (!Array.isArray(extractedData)) {
+      extractedData = [extractedData];
+    }
+
+    if (format === "csv") {
+      const { buffer, filename, mimetype } = convertToCsv(extractedData);
+      if (!buffer) {
+        return res.status(400).json({ error: "No data to export" });
+      }
+      res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+      res.setHeader('Content-Type', mimetype);
+      return res.send(buffer);
+    }
+    else if (format === "json-file") {
+      const { buffer, filename, mimetype } = convertToJson(extractedData);
+      if (!buffer) {
+        return res.status(400).json({ error: "No data to export" });
+      }
+      res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+      res.setHeader('Content-Type', mimetype);
+      return res.send(buffer);
+    }
+
+    return res.status(200).json({
+      status: "success",
+      count: extractedData.length,
+      data: extractedData
+    });
+
+  } catch (error) {
+    console.error("Scrape endpoint error:", error);
+    return res.status(500).json({ error: error.message || "Internal Server Error" });
   }
 });
 
