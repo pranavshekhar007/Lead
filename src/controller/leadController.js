@@ -45,6 +45,39 @@ leadController.post("/create", async (req, res) => {
   }
 });
 
+leadController.post("/batch-create", async (req, res) => {
+  try {
+    const leads = Array.isArray(req.body) ? req.body : req.body.leads;
+
+    if (!leads?.length) {
+      return sendResponse(res, 400, "Failed", { message: "No leads provided" });
+    }
+
+    let defaultStatusId;
+    if (leads.some((lead) => !lead.leadStatus)) {
+      const defaultStatus = await LeadStatus.findOne({ status: true }).sort({ createdAt: 1 });
+
+      if (!defaultStatus) {
+        return sendResponse(res, 400, "Failed", { message: "No active lead status found" });
+      }
+      defaultStatusId = defaultStatus._id;
+    }
+
+    const leadsToInsert = leads.map((lead) => ({
+      ...lead,
+      leadStatus: lead.leadStatus || defaultStatusId,
+    }));
+
+    const result = await Lead.insertMany(leadsToInsert);
+
+    sendResponse(res, 200, "Success", {
+      message: "Leads created successfully",
+      data: result,
+    });
+  } catch (error) {
+    sendResponse(res, 500, "Failed", { message: error.message });
+  }
+});
 
 /* LIST LEADS */
 leadController.post("/list", async (req, res) => {
@@ -97,8 +130,6 @@ leadController.post("/list", async (req, res) => {
     sendResponse(res, 500, "Failed", { message: error.message });
   }
 });
-
-
 
 /* UPDATE LEAD */
 leadController.put("/update/:id", async (req, res) => {
